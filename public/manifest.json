@@ -1,0 +1,17 @@
+{
+  "name": "SHIELD HER - Women's Safety & Digital Protection",
+  "short_name": "SHIELD HER",
+  "description": "Integrated women's physical safety, digital protection, emergency assistance, and offline preparedness platform for recHERsion'26.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#1e1b4b",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
