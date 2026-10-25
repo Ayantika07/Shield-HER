@@ -9,14 +9,14 @@ import {
   MapPin,
   Trash2,
   Edit2,
-  Download,
   Eye,
   CheckCircle2,
   AlertCircle,
   Paperclip,
   X,
-  FileSpreadsheet,
-  Share2
+  Clock,
+  Download,
+  ShieldCheck
 } from 'lucide-react';
 import { getAllIncidents, saveIncident, deleteIncident } from '../services/db';
 
@@ -36,6 +36,7 @@ export default function Evidence() {
     location: '',
     suspect: '',
     description: '',
+    notes: '',
     evidenceFiles: []
   });
 
@@ -67,6 +68,7 @@ export default function Evidence() {
       location: '',
       suspect: '',
       description: '',
+      notes: '',
       evidenceFiles: []
     });
     setActiveModal('create');
@@ -75,13 +77,14 @@ export default function Evidence() {
   const handleOpenEdit = (inc) => {
     setSelectedIncident(inc);
     setFormData({
-      title: inc.title,
-      category: inc.category,
-      date: inc.date,
+      title: inc.title || '',
+      category: inc.category || 'Cyber Harassment',
+      date: inc.date || new Date().toISOString().split('T')[0],
       time: inc.time || '',
       location: inc.location || '',
       suspect: inc.suspect || '',
       description: inc.description || '',
+      notes: inc.notes || '',
       evidenceFiles: inc.evidenceFiles || []
     });
     setActiveModal('edit');
@@ -137,21 +140,11 @@ export default function Evidence() {
   };
 
   const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to permanently delete this evidence record? This cannot be undone.')) {
+    if (window.confirm('Are you sure you want to delete this incident record from your device? This cannot be undone.')) {
       await deleteIncident(id);
       if (activeModal === 'view') setActiveModal(null);
       loadIncidents();
     }
-  };
-
-  const handleExportJSON = () => {
-    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(incidents, null, 2));
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute('href', dataStr);
-    downloadAnchor.setAttribute('download', `shield_her_evidence_dossier_${new Date().toISOString().split('T')[0]}.json`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
   };
 
   // Filtered incidents
@@ -161,13 +154,14 @@ export default function Evidence() {
       inc.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
       inc.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (inc.location && inc.location.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (inc.suspect && inc.suspect.toLowerCase().includes(searchTerm.toLowerCase()));
+      (inc.suspect && inc.suspect.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (inc.notes && inc.notes.toLowerCase().includes(searchTerm.toLowerCase()));
     return matchesCategory && matchesSearch;
   });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '1100px', margin: '0 auto' }}>
-      {/* Title & Actions */}
+      {/* Title & Action */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
           <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
@@ -175,18 +169,13 @@ export default function Evidence() {
             Private Evidence Locker
           </h1>
           <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
-            Securely record and catalog digital screenshots, stalking logs, and harassment timelines directly on your device.
+            Log and catalog incident notes, screenshots, suspect handles, and timelines privately on your device.
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
-          <button onClick={handleExportJSON} className="btn btn-secondary" style={{ gap: '0.4rem' }}>
-            <Download size={16} /> Export Dossier (JSON)
-          </button>
-          <button onClick={handleOpenCreate} className="btn btn-primary" style={{ gap: '0.4rem' }}>
-            <Plus size={16} /> Log New Incident
-          </button>
-        </div>
+        <button onClick={handleOpenCreate} className="btn btn-primary" style={{ gap: '0.4rem' }}>
+          <Plus size={16} /> Record Incident
+        </button>
       </div>
 
       {/* Search & Category Filter Bar */}
@@ -308,15 +297,15 @@ export default function Evidence() {
                 )}
                 {incident.suspect && (
                   <span>
-                    <strong>Suspect/Handle:</strong> {incident.suspect}
+                    <strong>Suspect / Handle:</strong> {incident.suspect}
                   </span>
                 )}
                 <span>
-                  📎 {incident.evidenceFiles?.length || 0} file attachment{incident.evidenceFiles?.length === 1 ? '' : 's'}
+                  📎 {incident.evidenceFiles?.length || 0} attached file{incident.evidenceFiles?.length === 1 ? '' : 's'}
                 </span>
                 {incident.analysisReport && (
-                  <span style={{ color: incident.analysisReport.riskScore >= 40 ? '#ef4444' : '#f59e0b', fontWeight: 600 }}>
-                    ⚠️ AI Risk: {incident.analysisReport.classification} ({incident.analysisReport.riskScore}/100)
+                  <span style={{ color: incident.analysisReport.riskScore >= 60 ? '#ef4444' : '#f59e0b', fontWeight: 600 }}>
+                    ⚠️ Threat Level: {incident.analysisReport.classification}
                   </span>
                 )}
               </div>
@@ -341,12 +330,12 @@ export default function Evidence() {
               : 'Your Evidence Locker is empty. Click below to document an occurrence.'}
           </p>
           <button onClick={handleOpenCreate} className="btn btn-primary btn-sm">
-            Log New Incident
+            Record Incident
           </button>
         </div>
       )}
 
-      {/* Storage Limitation & Security Disclaimer */}
+      {/* Honest Local Storage Notice */}
       <div style={{
         padding: '1rem',
         borderRadius: 'var(--radius-md)',
@@ -359,9 +348,9 @@ export default function Evidence() {
         alignItems: 'flex-start',
         gap: '0.6rem'
       }}>
-        <Lock size={18} color="var(--brand-purple-light)" style={{ flexShrink: 0, marginTop: '2px' }} />
+        <ShieldCheck size={18} color="var(--brand-purple-light)" style={{ flexShrink: 0, marginTop: '2px' }} />
         <div>
-          <strong>Storage & Privacy Disclosure:</strong> Records in this locker are persisted locally in your browser's IndexedDB store and are never automatically transmitted to third-party servers. We strongly advise exporting your dossier regularly (via the "Export Dossier" button) and saving a copy on an encrypted flash drive or secure cloud drive.
+          <strong>Local Storage & Privacy Note:</strong> Incidents and attached files are stored locally in your browser's IndexedDB database on this device. They are not uploaded to any remote server or cloud service. Keep original screenshot files backed up safely on your phone or computer.
         </div>
       </div>
 
@@ -371,7 +360,7 @@ export default function Evidence() {
           <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '650px' }}>
             <div className="modal-header">
               <h3 style={{ fontSize: '1.25rem', fontWeight: 700 }}>
-                {activeModal === 'create' ? 'Log Incident in Evidence Locker' : 'Edit Incident Record'}
+                {activeModal === 'create' ? 'Record Safety Incident' : 'Edit Incident Record'}
               </h3>
               <button onClick={() => setActiveModal(null)} style={{ background: 'transparent', color: 'var(--text-muted)' }}>
                 <X size={20} />
@@ -384,7 +373,7 @@ export default function Evidence() {
                 <input
                   type="text"
                   className="form-input"
-                  placeholder="e.g. Threatening WhatsApp audio note from unknown number"
+                  placeholder="e.g. Threatening message from unknown Instagram profile"
                   value={formData.title}
                   onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                   required
@@ -436,7 +425,7 @@ export default function Evidence() {
                   <input
                     type="text"
                     className="form-input"
-                    placeholder="e.g. Janpath Metro Gate 2 OR Instagram DM"
+                    placeholder="e.g. Instagram DM, Janpath Metro Gate 2"
                     value={formData.location}
                     onChange={(e) => setFormData({ ...formData, location: e.target.value })}
                   />
@@ -447,7 +436,7 @@ export default function Evidence() {
                   <input
                     type="text"
                     className="form-input"
-                    placeholder="e.g. @anonymous_bot OR Unknown rider DL-3S-XXXX"
+                    placeholder="e.g. @anonymous_99, or unknown male on two-wheeler"
                     value={formData.suspect}
                     onChange={(e) => setFormData({ ...formData, suspect: e.target.value })}
                   />
@@ -455,21 +444,32 @@ export default function Evidence() {
               </div>
 
               <div className="form-group">
-                <label className="form-label">Detailed Chronological Narrative</label>
+                <label className="form-label">Detailed Chronological Description</label>
                 <textarea
                   rows={4}
                   className="form-textarea"
-                  placeholder="Describe exactly what transpired. Note verbatim quotes, actions, witnesses, or emotional impact..."
+                  placeholder="Describe what occurred. Include direct quotes, actions, witnesses, or immediate reactions..."
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   required
                 />
               </div>
 
+              <div className="form-group">
+                <label className="form-label">Optional Notes / Follow-up Actions</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. Blocked profile on Instagram; reported to college proctor"
+                  value={formData.notes}
+                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                />
+              </div>
+
               {/* File Attachment Upload */}
               <div className="form-group">
                 <label className="form-label">
-                  <Paperclip size={14} /> Attach Forensic Evidence (Screenshots, PDFs, Photos)
+                  <Paperclip size={14} /> Attach Screenshots or Supporting Images
                 </label>
                 <input
                   type="file"
@@ -485,7 +485,7 @@ export default function Evidence() {
                     color: 'var(--text-secondary)'
                   }}
                 />
-                <span className="form-hint">Files are converted and preserved securely in your local browser store.</span>
+                <span className="form-hint">Files are stored locally in your browser storage.</span>
 
                 {formData.evidenceFiles.length > 0 && (
                   <div style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
@@ -527,7 +527,7 @@ export default function Evidence() {
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-primary">
-                  {activeModal === 'create' ? 'Save Record to Locker' : 'Update Record'}
+                  {activeModal === 'create' ? 'Save Record' : 'Update Record'}
                 </button>
               </div>
             </form>
@@ -582,7 +582,7 @@ export default function Evidence() {
               </div>
 
               <div>
-                <h4 style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '0.35rem' }}>Detailed Account:</h4>
+                <h4 style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '0.35rem' }}>Description:</h4>
                 <div style={{
                   backgroundColor: 'var(--bg-card)',
                   padding: '1rem',
@@ -596,11 +596,26 @@ export default function Evidence() {
                 </div>
               </div>
 
+              {selectedIncident.notes && (
+                <div>
+                  <h4 style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '0.35rem' }}>Follow-up Notes:</h4>
+                  <div style={{
+                    backgroundColor: 'var(--bg-card)',
+                    padding: '0.75rem 1rem',
+                    borderRadius: 'var(--radius-md)',
+                    fontSize: '0.85rem',
+                    color: 'var(--text-secondary)'
+                  }}>
+                    {selectedIncident.notes}
+                  </div>
+                </div>
+              )}
+
               {/* Evidence attachments preview */}
               {selectedIncident.evidenceFiles && selectedIncident.evidenceFiles.length > 0 && (
                 <div>
                   <h4 style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '0.5rem' }}>
-                    Attached Evidence ({selectedIncident.evidenceFiles.length}):
+                    Attached Files ({selectedIncident.evidenceFiles.length}):
                   </h4>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                     {selectedIncident.evidenceFiles.map((file, idx) => (
@@ -627,7 +642,7 @@ export default function Evidence() {
                             className="btn btn-outline btn-sm"
                             style={{ gap: '0.3rem' }}
                           >
-                            <Download size={13} /> Download File
+                            <Download size={13} /> View / Download
                           </a>
                         )}
                       </div>

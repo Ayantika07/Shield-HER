@@ -12,10 +12,16 @@ import {
   WifiOff,
   Settings,
   HelpCircle,
-  PhoneCall
+  PhoneCall,
+  LogOut
 } from 'lucide-react';
+import { useAuth } from '../../services/authContext';
+import { useNavigate } from 'react-router-dom';
 
 export default function Sidebar({ isOpen, onClose }) {
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+
   const navItems = [
     { to: '/', label: 'Main Dashboard', icon: LayoutDashboard, badge: null },
     { to: '/sos', label: 'Discreet SOS (112)', icon: AlertTriangle, badge: 'Urgent', badgeClass: 'badge-danger' },
@@ -130,6 +136,36 @@ export default function Sidebar({ isOpen, onClose }) {
             <div><strong style={{ color: 'var(--text-primary)' }}>1091:</strong> Women Helpline</div>
             <div><strong style={{ color: 'var(--text-primary)' }}>1930:</strong> Cyber Fraud & Crime</div>
           </div>
+        </div>
+
+        {/* Sign Out Button */}
+        <div style={{ padding: '0 0.75rem 0.75rem 0.75rem' }}>
+          <button
+            onClick={() => {
+              if (window.confirm('Are you sure you want to sign out of SHIELD HER?')) {
+                logout();
+                navigate('/login');
+              }
+            }}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.65rem',
+              padding: '0.625rem 0.75rem',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid rgba(239, 68, 68, 0.25)',
+              backgroundColor: 'rgba(239, 68, 68, 0.08)',
+              color: 'var(--status-danger)',
+              fontSize: '0.85rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            <LogOut size={16} />
+            <span>Sign Out</span>
+          </button>
         </div>
       </aside>
     </>

@@ -24,13 +24,29 @@ function ProtectedRoute({ children }) {
   return children;
 }
 
+// Public Route Guard (redirects authenticated users to dashboard)
+function PublicRoute({ children }) {
+  const { isAuthenticated } = useAuth();
+  if (isAuthenticated) {
+    return <Navigate to="/" replace />;
+  }
+  return children;
+}
+
 export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
         <Routes>
           {/* Public Authentication Route */}
-          <Route path="/login" element={<Login />} />
+          <Route
+            path="/login"
+            element={
+              <PublicRoute>
+                <Login />
+              </PublicRoute>
+            }
+          />
 
           {/* Protected Application Routes wrapped in AppLayout */}
           <Route

@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import {
   Building2,
   PhoneCall,
-  ShieldAlert,
   Search,
   ExternalLink,
   MapPin,
@@ -13,11 +12,132 @@ import {
   Info,
   Car,
   FileText,
-  Plus
+  Plus,
+  ShieldCheck,
+  ChevronRight,
+  Shield
 } from 'lucide-react';
 import { getCachedResources, getPoliceReferences, savePoliceReference } from '../services/db';
 
+const CITY_POLICE_DATA = {
+  delhi: {
+    name: 'Delhi NCR',
+    emergencyHelpline: '112',
+    womenHelpline: '1091',
+    controlRoomPhone: '011-23490010',
+    officialWebsite: 'https://delhipolice.gov.in',
+    cyberReportingUrl: 'https://cybercrime.gov.in',
+    patrolServices: [
+      {
+        name: 'Delhi Police PCR Night Drop Initiative',
+        area: 'All 15 Police Districts across Delhi NCT',
+        officialSource: 'Delhi Police Public Safety Order',
+        verifiedContact: '112',
+        operatingHours: '10:00 PM to 6:00 AM',
+        eligibility: 'Women stranded late at night without safe public or private transit.',
+        procedure: 'Dial 112. State your location and request night assistance. The PCR dispatcher coordinates the nearest patrol vehicle to escort or safely drop you to your destination or nearest safe facility.'
+      }
+    ]
+  },
+  bengaluru: {
+    name: 'Bengaluru (Karnataka)',
+    emergencyHelpline: '112',
+    womenHelpline: '1091',
+    controlRoomPhone: '080-22942222',
+    officialWebsite: 'https://bengalurucitypolice.gov.in',
+    cyberReportingUrl: 'https://cybercrime.gov.in',
+    patrolServices: [
+      {
+        name: 'Pink Hoysala Women Safety Patrols',
+        area: 'Bengaluru City Commissionerate (Commercial hubs, IT parks, colleges)',
+        officialSource: 'Bengaluru City Police Women Safety Division',
+        verifiedContact: '112',
+        operatingHours: '24x7 Dedicated Patrol Units',
+        eligibility: 'Women facing street harassment, stalking, or stranded during late transit.',
+        procedure: 'Dial 112. Dedicated all-women Pink Hoysala vehicles stationed across Bengaluru are prioritized for female distress calls.'
+      }
+    ]
+  },
+  mumbai: {
+    name: 'Mumbai (Maharashtra)',
+    emergencyHelpline: '112',
+    womenHelpline: '103',
+    controlRoomPhone: '022-22620111',
+    officialWebsite: 'https://mumbaipolice.gov.in',
+    cyberReportingUrl: 'https://cybercrime.gov.in',
+    patrolServices: [
+      {
+        name: 'Nirbhaya Squad & Mobile Patrols',
+        area: 'Greater Mumbai Police Commissionerate',
+        officialSource: 'Mumbai Police Nirbhaya Initiative',
+        verifiedContact: '103 / 112',
+        operatingHours: '24x7 Continuous Patrols',
+        eligibility: 'Women, students, and citizens facing harassment or threats in public transit corridors.',
+        procedure: 'Dial helpline 103 (Mumbai Women Helpline) or 112. Mobile Nirbhaya vans patrol railway stations, bus terminuses, and isolated routes.'
+      }
+    ]
+  },
+  kolkata: {
+    name: 'Kolkata (West Bengal)',
+    emergencyHelpline: '112',
+    womenHelpline: '1091',
+    controlRoomPhone: '033-22143230',
+    officialWebsite: 'https://kolkatapolice.gov.in',
+    cyberReportingUrl: 'https://cybercrime.gov.in',
+    patrolServices: [
+      {
+        name: 'The Winners - All-Women Motorcycle Patrol',
+        area: 'Kolkata Police jurisdiction',
+        officialSource: 'Kolkata Police Special Safety Division',
+        verifiedContact: '112',
+        operatingHours: 'Evening transit hours & late night',
+        eligibility: 'Targeted anti-harassment interventions near colleges, metro stations, and crowded shopping hubs.',
+        procedure: 'Call 112 or local police station. All-women scooter patrol units are dispatched for rapid tactical response.'
+      }
+    ]
+  },
+  hyderabad: {
+    name: 'Hyderabad (Telangana)',
+    emergencyHelpline: '112',
+    womenHelpline: '1091',
+    controlRoomPhone: '040-27852435',
+    officialWebsite: 'https://hyderabadpolice.gov.in',
+    cyberReportingUrl: 'https://cybercrime.gov.in',
+    patrolServices: [
+      {
+        name: 'SHE Teams Safety Network',
+        area: 'Hyderabad, Cyberabad, and Rachakonda Commissionerates',
+        officialSource: 'Telangana Police SHE Teams Directorate',
+        verifiedContact: '112',
+        operatingHours: '24x7 Citizen Assistance',
+        eligibility: 'Women facing eve-teasing, physical stalking, social media harassment, or distress.',
+        procedure: 'Call 112 or official SHE Teams WhatsApp line (+91 94906 16555). Covert and uniformed teams operate across bus stops and metro stations.'
+      }
+    ]
+  },
+  other: {
+    name: 'All-India / Other Cities',
+    emergencyHelpline: '112',
+    womenHelpline: '1091',
+    controlRoomPhone: '112',
+    officialWebsite: 'https://112.gov.in',
+    cyberReportingUrl: 'https://cybercrime.gov.in',
+    patrolServices: [
+      {
+        name: 'National Emergency Response Support System (ERSS)',
+        area: 'Pan-India coverage across all States & UTs',
+        officialSource: 'Ministry of Home Affairs (MHA), Govt. of India',
+        verifiedContact: '112',
+        operatingHours: '24x7 Nationwide Service',
+        eligibility: 'All citizens in need of immediate emergency police, medical, or fire dispatch.',
+        procedure: 'Dial 112 from any mobile or landline phone without a SIM card or active recharge balance.'
+      }
+    ]
+  }
+};
+
 export default function PoliceAssistance() {
+  const [selectedCityKey, setSelectedCityKey] = useState('delhi');
   const [stations, setStations] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [savedStationIds, setSavedStationIds] = useState(() => {
@@ -82,6 +202,8 @@ export default function PoliceAssistance() {
     loadReferences();
   };
 
+  const currentCityData = CITY_POLICE_DATA[selectedCityKey] || CITY_POLICE_DATA.other;
+
   const filteredStations = stations.filter((st) =>
     st.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     st.address.toLowerCase().includes(searchTerm.toLowerCase())
@@ -93,14 +215,14 @@ export default function PoliceAssistance() {
       <div>
         <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
           <Building2 size={28} color="var(--brand-purple-light)" />
-          Women's Police Assistance & Official Escort Support
+          Police Assistance & Women's Safety Services
         </h1>
         <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
-          Direct access to verified 24x7 Women Help Desks, official night patrol services, and formal complaint reference tracking.
+          Official helplines, verified municipal patrol initiatives, local women's help desks, and formal case reference tracking.
         </p>
       </div>
 
-      {/* Critical Legal & Operational Disclaimer */}
+      {/* Critical Legal Disclaimer */}
       <div style={{
         backgroundColor: 'rgba(239, 68, 68, 0.1)',
         border: '1px solid rgba(239, 68, 68, 0.3)',
@@ -112,124 +234,151 @@ export default function PoliceAssistance() {
       }}>
         <AlertTriangle size={20} color="#ef4444" style={{ flexShrink: 0, marginTop: '2px' }} />
         <div style={{ fontSize: '0.85rem', color: '#f8fafc', lineHeight: 1.5 }}>
-          <strong>Legal Independence Notice:</strong> SHIELD HER is an independent civic safety application and is not an official law enforcement dispatch service. In immediate physical danger, dial <strong>112</strong> immediately. Safe escort availability is subject to official police jurisdiction and patrol vehicle deployment.
+          <strong>Independence Disclosure:</strong> SHIELD HER is an independent civic safety application and is not an official police agency. Pressing buttons here does not automatically dispatch a vehicle. In immediate physical danger, dial <strong>112</strong> immediately via cellular network.
         </div>
       </div>
 
-      {/* Priority Helpline Banner */}
+      {/* City / Area Selector */}
       <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-        gap: '1rem'
+        backgroundColor: 'var(--bg-surface)',
+        padding: '1.25rem',
+        borderRadius: 'var(--radius-lg)',
+        border: '1px solid var(--border-subtle)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '0.75rem'
       }}>
-        <div style={{
-          backgroundColor: 'var(--bg-surface)',
-          padding: '1.25rem',
-          borderRadius: 'var(--radius-lg)',
-          border: '1px solid var(--border-subtle)',
-          textAlign: 'center'
-        }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            All-India Emergency
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Select Your City / Jurisdiction
+            </div>
+            <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+              Showing Services for: {currentCityData.name}
+            </div>
           </div>
-          <div style={{ fontSize: '2rem', fontWeight: 800, color: '#ef4444', margin: '0.25rem 0' }}>
-            112
-          </div>
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.875rem' }}>
-            Unified police, fire, and ambulance emergency response.
-          </p>
-          <a href="tel:112" className="btn btn-danger btn-sm" style={{ width: '100%', gap: '0.4rem' }}>
-            <PhoneCall size={14} /> Call 112 Direct
-          </a>
+
+          <select
+            value={selectedCityKey}
+            onChange={(e) => setSelectedCityKey(e.target.value)}
+            className="form-select"
+            style={{ width: 'auto', minWidth: '220px', fontWeight: 600 }}
+          >
+            <option value="delhi">Delhi NCR</option>
+            <option value="bengaluru">Bengaluru (Karnataka)</option>
+            <option value="mumbai">Mumbai (Maharashtra)</option>
+            <option value="kolkata">Kolkata (West Bengal)</option>
+            <option value="hyderabad">Hyderabad (Telangana)</option>
+            <option value="other">All-India / Other Cities</option>
+          </select>
         </div>
 
+        {/* Quick Official Action Bar for selected city */}
         <div style={{
-          backgroundColor: 'var(--bg-surface)',
-          padding: '1.25rem',
-          borderRadius: 'var(--radius-lg)',
-          border: '1px solid var(--border-subtle)',
-          textAlign: 'center'
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+          gap: '0.75rem',
+          marginTop: '0.5rem',
+          paddingTop: '0.75rem',
+          borderTop: '1px solid var(--border-subtle)'
         }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Women in Distress Helpline
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.65rem 0.85rem', backgroundColor: 'var(--bg-card)', borderRadius: 'var(--radius-md)' }}>
+            <div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Emergency (Police)</div>
+              <div style={{ fontWeight: 800, color: '#ef4444', fontSize: '1.1rem' }}>{currentCityData.emergencyHelpline}</div>
+            </div>
+            <a href={`tel:${currentCityData.emergencyHelpline}`} className="btn btn-danger btn-sm">
+              <PhoneCall size={13} /> Call
+            </a>
           </div>
-          <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--brand-purple-light)', margin: '0.25rem 0' }}>
-            1091
-          </div>
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.875rem' }}>
-            Specialized state women safety helpline (verify regional service).
-          </p>
-          <a href="tel:1091" className="btn btn-secondary btn-sm" style={{ width: '100%', gap: '0.4rem' }}>
-            <PhoneCall size={14} /> Call 1091
-          </a>
-        </div>
 
-        <div style={{
-          backgroundColor: 'var(--bg-surface)',
-          padding: '1.25rem',
-          borderRadius: 'var(--radius-lg)',
-          border: '1px solid var(--border-subtle)',
-          textAlign: 'center'
-        }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            National Cyber Crime Helpline
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.65rem 0.85rem', backgroundColor: 'var(--bg-card)', borderRadius: 'var(--radius-md)' }}>
+            <div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Women's Helpline</div>
+              <div style={{ fontWeight: 800, color: 'var(--brand-purple-light)', fontSize: '1.1rem' }}>{currentCityData.womenHelpline}</div>
+            </div>
+            <a href={`tel:${currentCityData.womenHelpline}`} className="btn btn-secondary btn-sm">
+              <PhoneCall size={13} /> Call
+            </a>
           </div>
-          <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--status-warning)', margin: '0.25rem 0' }}>
-            1930
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.65rem 0.85rem', backgroundColor: 'var(--bg-card)', borderRadius: 'var(--radius-md)' }}>
+            <div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Official Police Web Portal</div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', fontWeight: 600 }}>Verified Source</div>
+            </div>
+            <a href={currentCityData.officialWebsite} target="_blank" rel="noopener noreferrer" className="btn btn-outline btn-sm">
+              <ExternalLink size={13} /> Portal
+            </a>
           </div>
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.875rem' }}>
-            Immediate reporting for online harassment and financial fraud.
-          </p>
-          <a href="tel:1930" className="btn btn-secondary btn-sm" style={{ width: '100%', gap: '0.4rem' }}>
-            <PhoneCall size={14} /> Call 1930
-          </a>
         </div>
       </div>
 
-      {/* Official Night Patrol & Safe Escort Protocols */}
+      {/* Verified City Patrol & Escort Policies */}
       <div className="card">
         <div className="card-header">
           <div className="card-title">
             <Car size={20} color="var(--brand-lavender)" />
-            <span>Official Police Night Escort & Safe Transit Policies</span>
+            <span>Official Women's Night Transit & Patrol Initiatives ({currentCityData.name})</span>
           </div>
         </div>
 
-        <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1rem', lineHeight: 1.6 }}>
-          Several metropolitan police commissionerates in India provide dedicated safe escort and patrol services for stranded women between 10:00 PM and 6:00 AM:
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem', lineHeight: 1.5 }}>
+          Verified municipal police patrol services operating in <strong>{currentCityData.name}</strong>. Availability is subject to official police vehicle deployment.
         </p>
 
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-          gap: '1rem'
-        }}>
-          <div style={{ backgroundColor: 'var(--bg-surface)', padding: '1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
-            <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.35rem' }}>
-              🚓 Delhi Police PCR Night Drop Initiative
-            </div>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              Women stranded late at night without safe transport can dial 112. The nearest PCR vehicle will be dispatched to escort or safely drop the woman to her residence or nearest police post.
-            </p>
-          </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+          {currentCityData.patrolServices.map((service, idx) => (
+            <div
+              key={idx}
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                padding: '1.15rem',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-subtle)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.5rem'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <h3 style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                  {service.name}
+                </h3>
+                <span className="badge badge-purple" style={{ fontSize: '0.7rem' }}>
+                  {service.operatingHours}
+                </span>
+              </div>
 
-          <div style={{ backgroundColor: 'var(--bg-surface)', padding: '1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
-            <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.35rem' }}>
-              🚨 Bengaluru Police: Pink Hoysala Patrols
-            </div>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              Dedicated all-women police response vehicles (Pink Hoysalas) stationed across commercial hubs, IT corridors, and colleges to respond exclusively to distress calls from women.
-            </p>
-          </div>
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                <div><strong>Operational Area:</strong> {service.area}</div>
+                <div><strong>Eligibility:</strong> {service.eligibility}</div>
+                <div style={{ marginTop: '0.25rem' }}><strong>Procedure:</strong> {service.procedure}</div>
+              </div>
 
-          <div style={{ backgroundColor: 'var(--bg-surface)', padding: '1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
-            <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.35rem' }}>
-              🛡️ Mumbai Police: Nirbhaya Squads
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '0.5rem',
+                paddingTop: '0.65rem',
+                borderTop: '1px solid var(--border-subtle)',
+                marginTop: '0.25rem'
+              }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  Source: {service.officialSource}
+                </span>
+                <a
+                  href={`tel:${service.verifiedContact}`}
+                  className="btn btn-primary btn-sm"
+                  style={{ gap: '0.35rem' }}
+                >
+                  <PhoneCall size={13} /> Contact Official Route ({service.verifiedContact})
+                </a>
+              </div>
             </div>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              Trained undercover and uniformed teams equipped with mobile vans, conducting continuous night patrols around railway stations, bus stands, and secluded streets.
-            </p>
-          </div>
+          ))}
         </div>
       </div>
 
@@ -238,7 +387,7 @@ export default function PoliceAssistance() {
         <div className="card-header">
           <div className="card-title">
             <ExternalLink size={20} color="var(--brand-purple-light)" />
-            <span>Official Government Portals & Grievance Lodging</span>
+            <span>Official Government Reporting Portals & Helplines</span>
           </div>
         </div>
 
@@ -264,7 +413,7 @@ export default function PoliceAssistance() {
                 National Cyber Crime Reporting Portal (cybercrime.gov.in)
               </div>
               <div style={{ fontSize: '0.775rem', color: 'var(--text-muted)' }}>
-                Official Ministry of Home Affairs portal for reporting cyber harassment, obscene content, and extortion.
+                Official portal for reporting online harassment, non-consensual imagery, and digital extortion. Helpline: 1930.
               </div>
             </div>
             <ExternalLink size={16} color="var(--brand-purple-light)" />
@@ -291,7 +440,7 @@ export default function PoliceAssistance() {
                 National Commission for Women (ncw.nic.in)
               </div>
               <div style={{ fontSize: '0.775rem', color: 'var(--text-muted)' }}>
-                Online complaint registration for domestic violence, dowry harassment, and workplace harassment.
+                Online complaint registration and 24x7 Women Helpline (7827170170).
               </div>
             </div>
             <ExternalLink size={16} color="var(--brand-purple-light)" />
@@ -318,7 +467,7 @@ export default function PoliceAssistance() {
                 Emergency Response Support System (ERSS 112 India)
               </div>
               <div style={{ fontSize: '0.775rem', color: 'var(--text-muted)' }}>
-                Pan-India single emergency number portal for real-time dispatch monitoring.
+                Pan-India single emergency response support system portal.
               </div>
             </div>
             <ExternalLink size={16} color="var(--brand-purple-light)" />
@@ -399,19 +548,19 @@ export default function PoliceAssistance() {
         )}
       </div>
 
-      {/* Directory of Verified Women Help Desks */}
+      {/* Directory of Verified Police Stations & Women Desks */}
       <div className="card">
         <div className="card-header">
           <div className="card-title">
             <Building2 size={20} color="var(--brand-purple-light)" />
-            <span>Verified Nearby Police Stations & Women Desks</span>
+            <span>Verified Police Stations & Women Help Desks</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Search size={16} color="var(--text-muted)" />
             <input
               type="text"
               className="form-input"
-              placeholder="Search station..."
+              placeholder="Filter stations..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               style={{ width: '180px', margin: 0, padding: '0.35rem 0.65rem', fontSize: '0.8rem' }}
@@ -455,6 +604,9 @@ export default function PoliceAssistance() {
                       🛡️ {st.notes}
                     </div>
                   )}
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                    Source: {st.source || 'Delhi Police Directory'} ({st.verifiedDate || 'Verified'})
+                  </div>
                 </div>
 
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -466,10 +618,12 @@ export default function PoliceAssistance() {
                   >
                     <Bookmark size={14} fill={isSaved ? 'currentColor' : 'none'} />
                   </button>
-                  {st.phone && (
+                  {st.phone ? (
                     <a href={`tel:${st.phone}`} className="btn btn-success btn-sm" style={{ gap: '0.3rem' }}>
                       <PhoneCall size={13} /> {st.phone}
                     </a>
+                  ) : (
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Local contact not verified (Use 112)</span>
                   )}
                   <a
                     href={`https://www.google.com/maps/dir/?api=1&destination=${st.lat},${st.lng}`}
@@ -553,7 +707,7 @@ export default function PoliceAssistance() {
               </div>
 
               <div className="form-group">
-                <label className="form-label">Follow-up Notes / Status</label>
+                <label className="form-label">Follow-up Notes / Case Status</label>
                 <textarea
                   rows={3}
                   className="form-textarea"

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Navigation,
   Clock,
@@ -13,11 +13,14 @@ import {
   Car,
   History,
   AlertCircle,
-  Info
+  Check,
+  Send,
+  X,
+  UserCheck
 } from 'lucide-react';
 import { useAuth } from '../services/authContext';
 import { getActiveJourney, getAllJourneys, saveJourney, getEmergencyContacts } from '../services/db';
-import { getCurrentCoordinates, shareEmergencyAlert } from '../services/deviceService';
+import { getCurrentCoordinates } from '../services/deviceService';
 
 export default function Journey() {
   const { user } = useAuth();
@@ -26,10 +29,18 @@ export default function Journey() {
   const [journeyHistory, setJourneyHistory] = useState([]);
   const [contacts, setContacts] = useState([]);
   const [timeRemaining, setTimeRemaining] = useState('');
-  const [checkInCountdown, setCheckInCountdown] = useState(0);
-  const [missedCheckIns, setMissedCheckIns] = useState(0);
+  const [checkInRemainingSec, setCheckInRemainingSec] = useState(0);
+  const [isOverdue, setIsOverdue] = useState(false);
+  const [overdueMinutes, setOverdueMinutes] = useState(0);
 
-  // New Journey Form
+  // Modals
+  const [showEmergencyModal, setShowEmergencyModal] = useState(false);
+  const [showArrivalModal, setShowArrivalModal] = useState(false);
+  const [selectedContactIds, setSelectedContactIds] = useState([]);
+  const [currentLocation, setCurrentLocation] = useState(null);
+  const [lastCompletedJourney, setLastCompletedJourney] = useState(null);
+
+  // Form State
   const [form, setForm] = useState({
     origin: '',
     destination: '',
@@ -39,8 +50,18 @@ export default function Journey() {
     checkInInterval: '15'
   });
 
+  const timerRef = useRef(null);
+
   useEffect(() => {
     loadData();
+    // Non-blocking location check
+    getCurrentCoordinates()
+      .then(setCurrentLocation)
+      .catch(() => {/* Location optional */});
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
   }, []);
 
   const loadData = async () => {
@@ -50,39 +71,68 @@ export default function Journey() {
     setJourneyHistory(history.filter(j => j.status === 'completed' || j.status === 'cancelled'));
     const conts = await getEmergencyContacts();
     setContacts(conts);
+    if (conts.length > 0) {
+      setSelectedContactIds([conts[0].id]);
+    }
 
     if (active) {
-      setMissedCheckIns(active.missedCheckIns || 0);
       calculateTimeLeft(active.expectedArrival);
-      // set check-in countdown
-      const intervalSec = (parseInt(active.checkInInterval, 10) || 15) * 60;
-      setCheckInCountdown(intervalSec);
+      syncCheckInTimer(active);
     }
   };
 
-  // Live timer for active journey
+  const syncCheckInTimer = (journey) => {
+    if (!journey || journey.status !== 'active') return;
+
+    const intervalMinutes = parseInt(journey.checkInInterval, 10) || 15;
+    const now = Date.now();
+
+    // If journey doesn't have a nextCheckInTimestamp, set it
+    let target = journey.nextCheckInTimestamp;
+    if (!target) {
+      target = now + intervalMinutes * 60 * 1000;
+      journey.nextCheckInTimestamp = target;
+      saveJourney(journey);
+    }
+
+    const diffSec = Math.round((target - now) / 1000);
+    if (diffSec <= 0) {
+      setIsOverdue(true);
+      setOverdueMinutes(Math.max(1, Math.round(Math.abs(diffSec) / 60)));
+      setCheckInRemainingSec(0);
+    } else {
+      setIsOverdue(false);
+      setCheckInRemainingSec(diffSec);
+    }
+  };
+
+  // Timer loop for active journey
   useEffect(() => {
-    if (!activeJourney || activeJourney.status !== 'active') return;
+    if (timerRef.current) clearInterval(timerRef.current);
 
-    const interval = setInterval(() => {
-      calculateTimeLeft(activeJourney.expectedArrival);
+    if (activeJourney && activeJourney.status === 'active') {
+      timerRef.current = setInterval(() => {
+        calculateTimeLeft(activeJourney.expectedArrival);
 
-      setCheckInCountdown((prev) => {
-        if (prev <= 1) {
-          // Missed check-in increment
-          setMissedCheckIns((m) => {
-            const nextMissed = m + 1;
-            // update in DB
-            saveJourney({ ...activeJourney, missedCheckIns: nextMissed });
-            return nextMissed;
-          });
-          return (parseInt(activeJourney.checkInInterval, 10) || 15) * 60;
+        const now = Date.now();
+        const target = activeJourney.nextCheckInTimestamp || (now + (parseInt(activeJourney.checkInInterval, 10) || 15) * 60 * 1000);
+        const diffSec = Math.round((target - now) / 1000);
+
+        if (diffSec <= 0) {
+          setIsOverdue(true);
+          const mins = Math.max(1, Math.round(Math.abs(diffSec) / 60));
+          setOverdueMinutes(mins);
+          setCheckInRemainingSec(0);
+        } else {
+          setIsOverdue(false);
+          setCheckInRemainingSec(diffSec);
         }
-        return prev - 1;
-      });
-    }, 1000);
+      }, 1000);
+    }
 
-    return () => clearInterval(interval);
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
   }, [activeJourney]);
 
   const calculateTimeLeft = (etaStr) => {
@@ -93,7 +143,6 @@ export default function Journey() {
     eta.setHours(hours, minutes, 0, 0);
 
     if (eta < now) {
-      // Past ETA
       const diffMins = Math.round((now - eta) / 60000);
       setTimeRemaining(`Overdue by ${diffMins} min${diffMins === 1 ? '' : 's'}`);
     } else {
@@ -108,106 +157,169 @@ export default function Journey() {
     e.preventDefault();
     if (!form.origin || !form.destination || !form.expectedArrival) return;
 
+    const intervalMinutes = parseInt(form.checkInInterval, 10) || 15;
+    const nextCheckIn = Date.now() + intervalMinutes * 60 * 1000;
+
     const newJourney = {
       id: 'jny_' + Date.now(),
       ...form,
       status: 'active',
       startTime: new Date().toISOString(),
+      nextCheckInTimestamp: nextCheckIn,
       checkIns: [
         { time: new Date().toISOString(), note: 'Journey initiated' }
-      ],
-      missedCheckIns: 0
+      ]
     };
 
     await saveJourney(newJourney);
     setActiveJourney(newJourney);
+    setIsOverdue(false);
+    setCheckInRemainingSec(intervalMinutes * 60);
     loadData();
   };
 
   const handleCheckIn = async () => {
     if (!activeJourney) return;
+    const intervalMinutes = parseInt(activeJourney.checkInInterval, 10) || 15;
+    const nextCheckIn = Date.now() + intervalMinutes * 60 * 1000;
+
     const updatedCheckIns = [
       ...(activeJourney.checkIns || []),
-      { time: new Date().toISOString(), note: 'Routine safety confirmation' }
+      { time: new Date().toISOString(), note: 'Confirmed safe by user' }
     ];
 
     const updated = {
       ...activeJourney,
-      checkIns: updatedCheckIns,
-      missedCheckIns: 0,
-      lastCheckInTime: new Date().toISOString()
+      nextCheckInTimestamp: nextCheckIn,
+      lastCheckInTime: new Date().toISOString(),
+      checkIns: updatedCheckIns
     };
 
     await saveJourney(updated);
     setActiveJourney(updated);
-    setMissedCheckIns(0);
-    // Reset countdown
-    setCheckInCountdown((parseInt(activeJourney.checkInInterval, 10) || 15) * 60);
+    setIsOverdue(false);
+    setOverdueMinutes(0);
+    setCheckInRemainingSec(intervalMinutes * 60);
   };
 
   const handlePauseResume = async () => {
     if (!activeJourney) return;
-    const newStatus = activeJourney.status === 'active' ? 'paused' : 'active';
-    const updated = { ...activeJourney, status: newStatus };
-    await saveJourney(updated);
-    setActiveJourney(updated);
+    if (activeJourney.status === 'active') {
+      // Pause
+      const remainingBeforePause = Math.max(0, Math.round((activeJourney.nextCheckInTimestamp - Date.now()) / 1000));
+      const updated = {
+        ...activeJourney,
+        status: 'paused',
+        pausedRemainingSec: remainingBeforePause
+      };
+      await saveJourney(updated);
+      setActiveJourney(updated);
+    } else {
+      // Resume
+      const remainingSec = activeJourney.pausedRemainingSec || (parseInt(activeJourney.checkInInterval, 10) || 15) * 60;
+      const updated = {
+        ...activeJourney,
+        status: 'active',
+        nextCheckInTimestamp: Date.now() + remainingSec * 1000
+      };
+      await saveJourney(updated);
+      setActiveJourney(updated);
+      syncCheckInTimer(updated);
+    }
   };
 
   const handleCompleteJourney = async () => {
     if (!activeJourney) return;
-    const updated = {
+    const completedRecord = {
       ...activeJourney,
       status: 'completed',
       completedTime: new Date().toISOString()
     };
-    await saveJourney(updated);
+    await saveJourney(completedRecord);
+    setLastCompletedJourney(completedRecord);
     setActiveJourney(null);
+    setIsOverdue(false);
+    if (timerRef.current) clearInterval(timerRef.current);
+    setShowArrivalModal(true);
     loadData();
   };
 
   const handleCancelJourney = async () => {
-    if (!window.confirm('Cancel this active journey?')) return;
-    const updated = {
+    if (!window.confirm('Are you sure you want to cancel this journey?')) return;
+    const cancelledRecord = {
       ...activeJourney,
       status: 'cancelled',
       cancelledTime: new Date().toISOString()
     };
-    await saveJourney(updated);
+    await saveJourney(cancelledRecord);
     setActiveJourney(null);
+    setIsOverdue(false);
+    if (timerRef.current) clearInterval(timerRef.current);
     loadData();
   };
 
-  const handleShareJourney = async () => {
-    if (!activeJourney) return;
-    const text = `SHIELD HER Safe Journey Update from ${user?.name || 'Aanya'}:
-Traveling from ${activeJourney.origin} to ${activeJourney.destination}
-Mode: ${activeJourney.vehicleMode} ${activeJourney.driverDetails ? `(${activeJourney.driverDetails})` : ''}
-Expected Arrival: ${activeJourney.expectedArrival}
-Status: In Transit. Checking in every ${activeJourney.checkInInterval} minutes.`;
+  // Prepare Missed Check-in Emergency Message
+  const getEmergencyMessageText = () => {
+    const userName = user?.name || 'A traveler using SHIELD HER';
+    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    let locStr = 'Location permission not enabled';
+    if (currentLocation) {
+      locStr = `Lat: ${currentLocation.latitude.toFixed(4)}, Lon: ${currentLocation.longitude.toFixed(4)} (±${currentLocation.accuracy}m)`;
+    }
 
+    return `SAFETY ALERT from ${userName}:
+I missed my scheduled journey check-in.
+Origin: ${activeJourney?.origin}
+Destination: ${activeJourney?.destination}
+Mode: ${activeJourney?.vehicleMode} ${activeJourney?.driverDetails ? `(${activeJourney?.driverDetails})` : ''}
+Expected Arrival: ${activeJourney?.expectedArrival}
+Alert Time: ${time} (Overdue by ${overdueMinutes} min${overdueMinutes === 1 ? '' : 's'})
+Last Location: ${locStr}
+
+Please call me immediately. If I am unreachable, please call 112.`;
+  };
+
+  const getArrivalMessageText = () => {
+    const userName = user?.name || 'I';
+    return `Hi! ${userName} has safely reached the destination (${lastCompletedJourney?.destination || 'home'}). Journey monitoring is now completed.`;
+  };
+
+  const handleToggleContactSelection = (id) => {
+    if (selectedContactIds.includes(id)) {
+      setSelectedContactIds(selectedContactIds.filter(cId => cId !== id));
+    } else {
+      setSelectedContactIds([...selectedContactIds, id]);
+    }
+  };
+
+  const handleShareViaWebShare = async (text) => {
     if (navigator.share) {
       try {
-        await navigator.share({ title: 'Live Safe Journey', text });
+        await navigator.share({
+          title: 'SHIELD HER Journey Update',
+          text
+        });
       } catch {
+        // Fallback to clipboard
         navigator.clipboard.writeText(text);
-        alert('Journey details copied to clipboard!');
+        alert('Message copied to clipboard! You can paste it into your messaging application.');
       }
     } else {
       navigator.clipboard.writeText(text);
-      alert('Journey details copied to clipboard!');
+      alert('Message copied to clipboard! You can paste it into your messaging application.');
     }
   };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '1000px', margin: '0 auto' }}>
-      {/* Header */}
+      {/* Title */}
       <div>
         <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
           <Navigation size={28} color="var(--brand-purple-light)" />
           Safe Journey Companion
         </h1>
         <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
-          Real-time transit check-in timer, automated missed check-in alerts, and emergency contact sharing.
+          Real-time transit check-in monitoring, overdue alerts, and direct contact notifications.
         </p>
       </div>
 
@@ -215,17 +327,22 @@ Status: In Transit. Checking in every ${activeJourney.checkInInterval} minutes.`
       {activeJourney ? (
         <div style={{
           backgroundColor: 'var(--bg-surface)',
-          border: '1px solid var(--brand-purple)',
+          border: `1px solid ${isOverdue ? '#ef4444' : 'var(--brand-purple)'}`,
           borderRadius: 'var(--radius-xl)',
           padding: '1.75rem',
-          boxShadow: 'var(--shadow-md)'
+          boxShadow: isOverdue ? '0 0 20px rgba(239, 68, 68, 0.25)' : 'var(--shadow-md)'
         }}>
-          {/* Status Header */}
+          {/* Header Status */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem' }}>
             <div>
-              <span className={`badge ${activeJourney.status === 'active' ? 'badge-safe' : 'badge-warning'}`} style={{ marginBottom: '0.4rem' }}>
-                {activeJourney.status === 'active' ? '● Active Transit Monitoring' : '❚❚ Paused'}
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem' }}>
+                <span className={`badge ${isOverdue ? 'badge-danger' : activeJourney.status === 'active' ? 'badge-safe' : 'badge-warning'}`}>
+                  {isOverdue ? '⚠️ Check-in Overdue' : activeJourney.status === 'active' ? '● Active Transit Monitoring' : '❚❚ Paused'}
+                </span>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Started {new Date(activeJourney.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
               <h2 style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--text-primary)' }}>
                 {activeJourney.origin} → {activeJourney.destination}
               </h2>
@@ -239,93 +356,106 @@ Status: In Transit. Checking in every ${activeJourney.checkInInterval} minutes.`
             </div>
           </div>
 
-          {/* Missed Check-in Warning if > 0 */}
-          {missedCheckIns > 0 && (
+          {/* MISSED CHECK-IN OVERDUE ALERT WORKFLOW */}
+          {isOverdue ? (
             <div style={{
-              backgroundColor: 'var(--status-danger-bg)',
-              border: '1px solid var(--status-danger)',
-              borderRadius: 'var(--radius-md)',
-              padding: '0.85rem 1rem',
-              marginBottom: '1.25rem',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              flexWrap: 'wrap',
-              gap: '0.75rem'
+              backgroundColor: 'rgba(239, 68, 68, 0.12)',
+              border: '2px solid #ef4444',
+              borderRadius: 'var(--radius-lg)',
+              padding: '1.25rem',
+              marginBottom: '1.5rem'
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#fca5a5' }}>
-                <AlertTriangle size={20} />
-                <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>
-                  Safety Alert: {missedCheckIns} Missed Check-in{missedCheckIns > 1 ? 's' : ''}!
-                </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', color: '#fca5a5', marginBottom: '0.5rem' }}>
+                <AlertTriangle size={24} color="#ef4444" />
+                <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: '#fecaca' }}>
+                  Scheduled Check-in is Overdue by {overdueMinutes} minute{overdueMinutes === 1 ? '' : 's'}!
+                </h3>
               </div>
-              <button
-                onClick={handleCheckIn}
-                className="btn btn-success btn-sm"
-              >
-                I am Safe (Reset Alert)
-              </button>
+              <p style={{ fontSize: '0.875rem', color: '#f8fafc', marginBottom: '1.25rem', lineHeight: 1.5 }}>
+                Your check-in deadline has passed without confirmation. If you are safe, please tap <strong>"I'm Safe — Confirm Check-in"</strong>. If you feel uncomfortable, delayed, or in danger, tap <strong>"Send Emergency Message"</strong> to notify your trusted contacts.
+              </p>
+
+              <div style={{ display: 'flex', gap: '0.875rem', flexWrap: 'wrap' }}>
+                <button
+                  onClick={() => setShowEmergencyModal(true)}
+                  className="btn btn-danger btn-lg pulse-emergency"
+                  style={{ flex: 1, minWidth: '220px', fontWeight: 800, gap: '0.5rem' }}
+                >
+                  <Send size={18} /> Send Emergency Message
+                </button>
+                <button
+                  onClick={handleCheckIn}
+                  className="btn btn-success btn-lg"
+                  style={{ flex: 1, minWidth: '220px', fontWeight: 800, gap: '0.5rem' }}
+                >
+                  <CheckCircle2 size={20} /> I'm Safe — Confirm Check-in
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* Normal Countdown State */
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+              gap: '1rem',
+              backgroundColor: 'var(--bg-card)',
+              padding: '1rem',
+              borderRadius: 'var(--radius-md)',
+              marginBottom: '1.5rem',
+              border: '1px solid var(--border-subtle)'
+            }}>
+              <div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Travel Mode</div>
+                <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginTop: '0.2rem' }}>
+                  {activeJourney.vehicleMode}
+                </div>
+              </div>
+              {activeJourney.driverDetails && (
+                <div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Driver / Cab Info</div>
+                  <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginTop: '0.2rem' }}>
+                    {activeJourney.driverDetails}
+                  </div>
+                </div>
+              )}
+              <div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Next Scheduled Check-in</div>
+                <div style={{ fontWeight: 700, color: 'var(--brand-purple-light)', marginTop: '0.2rem', fontSize: '1.1rem' }}>
+                  {activeJourney.status === 'paused'
+                    ? 'Paused'
+                    : `${Math.floor(checkInRemainingSec / 60)}m ${checkInRemainingSec % 60}s`}
+                </div>
+              </div>
             </div>
           )}
 
-          {/* Transit Details Box */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-            gap: '1rem',
-            backgroundColor: 'var(--bg-card)',
-            padding: '1rem',
-            borderRadius: 'var(--radius-md)',
-            marginBottom: '1.5rem',
-            border: '1px solid var(--border-subtle)'
-          }}>
-            <div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Mode & Vehicle</div>
-              <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginTop: '0.2rem' }}>
-                {activeJourney.vehicleMode}
-              </div>
-            </div>
-            {activeJourney.driverDetails && (
-              <div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Cab / Driver Info</div>
-                <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginTop: '0.2rem' }}>
-                  {activeJourney.driverDetails}
-                </div>
-              </div>
-            )}
-            <div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Next Check-in Due In</div>
-              <div style={{ fontWeight: 700, color: checkInCountdown < 60 ? 'var(--status-danger)' : 'var(--brand-purple-light)', marginTop: '0.2rem' }}>
-                {Math.floor(checkInCountdown / 60)}m {checkInCountdown % 60}s
-              </div>
-            </div>
-          </div>
-
-          {/* Primary Action Buttons */}
+          {/* Primary Journey Actions */}
           <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-            <button
-              onClick={handleCheckIn}
-              className="btn btn-success btn-lg"
-              style={{ flex: 2, minWidth: '180px', fontWeight: 700, gap: '0.5rem' }}
-            >
-              <CheckCircle2 size={20} /> I'm Safe (Confirm Check-In)
-            </button>
+            {!isOverdue && (
+              <button
+                onClick={handleCheckIn}
+                className="btn btn-success btn-lg"
+                style={{ flex: 2, minWidth: '180px', fontWeight: 700, gap: '0.5rem' }}
+              >
+                <CheckCircle2 size={20} /> I'm Safe (Confirm Check-in)
+              </button>
+            )}
             <button
               onClick={handleCompleteJourney}
               className="btn btn-primary btn-lg"
-              style={{ flex: 1, minWidth: '140px' }}
+              style={{ flex: 1, minWidth: '160px', fontWeight: 700, gap: '0.5rem' }}
             >
-              Reached Destination
+              <UserCheck size={18} /> Reached Destination
             </button>
           </div>
 
           <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
             <button
-              onClick={handleShareJourney}
+              onClick={() => setShowEmergencyModal(true)}
               className="btn btn-secondary btn-sm"
               style={{ gap: '0.4rem' }}
             >
-              <Share2 size={14} /> Share Status with Contacts
+              <Send size={14} /> Send Status to Contacts
             </button>
             <button
               onClick={handlePauseResume}
@@ -333,7 +463,7 @@ Status: In Transit. Checking in every ${activeJourney.checkInInterval} minutes.`
               style={{ gap: '0.4rem' }}
             >
               {activeJourney.status === 'active' ? <Pause size={14} /> : <Play size={14} />}
-              {activeJourney.status === 'active' ? 'Pause Journey' : 'Resume Journey'}
+              {activeJourney.status === 'active' ? 'Pause Monitoring' : 'Resume Monitoring'}
             </button>
             <button
               onClick={handleCancelJourney}
@@ -350,16 +480,12 @@ Status: In Transit. Checking in every ${activeJourney.checkInInterval} minutes.`
           <div className="card-header">
             <div className="card-title">
               <Navigation size={20} color="var(--brand-purple-light)" />
-              <span>Start a New Monitored Journey</span>
+              <span>Plan & Start a Monitored Journey</span>
             </div>
           </div>
 
           <form onSubmit={handleStartJourney}>
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-              gap: '1rem'
-            }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1rem' }}>
               <div className="form-group">
                 <label className="form-label">
                   <MapPin size={14} /> Starting Point (Origin)
@@ -389,11 +515,7 @@ Status: In Transit. Checking in every ${activeJourney.checkInInterval} minutes.`
               </div>
             </div>
 
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-              gap: '1rem'
-            }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
               <div className="form-group">
                 <label className="form-label">
                   <Car size={14} /> Mode of Travel
@@ -407,7 +529,7 @@ Status: In Transit. Checking in every ${activeJourney.checkInInterval} minutes.`
                   <option value="Auto Rickshaw">Auto Rickshaw</option>
                   <option value="Metro / Train">Metro / Train</option>
                   <option value="Public Bus">Public Bus</option>
-                  <option value="Walking">Walking Alone</option>
+                  <option value="Walking Alone">Walking Alone</option>
                   <option value="Personal Vehicle">Personal Vehicle</option>
                 </select>
               </div>
@@ -449,7 +571,7 @@ Status: In Transit. Checking in every ${activeJourney.checkInInterval} minutes.`
               <input
                 type="text"
                 className="form-input"
-                placeholder="e.g. White Dzire DL-1Z-9988, Driver: Ramesh"
+                placeholder="e.g. White Swift Dzire DL-1Z-9988, Driver: Ramesh"
                 value={form.driverDetails}
                 onChange={(e) => setForm({ ...form, driverDetails: e.target.value })}
               />
@@ -466,24 +588,194 @@ Status: In Transit. Checking in every ${activeJourney.checkInInterval} minutes.`
         </div>
       )}
 
-      {/* Limitation Notice */}
-      <div style={{
-        padding: '1rem',
-        borderRadius: 'var(--radius-md)',
-        backgroundColor: 'rgba(99, 102, 241, 0.08)',
-        border: '1px solid rgba(99, 102, 241, 0.25)',
-        fontSize: '0.8rem',
-        color: 'var(--text-secondary)',
-        lineHeight: 1.5,
-        display: 'flex',
-        alignItems: 'flex-start',
-        gap: '0.6rem'
-      }}>
-        <Info size={18} color="var(--brand-purple-light)" style={{ flexShrink: 0, marginTop: '2px' }} />
-        <div>
-          <strong>Browser Execution Disclaimer:</strong> Mobile web browsers suspend background JavaScript timers when the screen turns off or the tab is switched. For unattended 24/7 background geofencing, keep this web tab active or install SHIELD HER as a PWA on your home screen.
+      {/* EMERGENCY MESSAGE MODAL */}
+      {showEmergencyModal && (
+        <div className="modal-overlay" onClick={() => setShowEmergencyModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '620px' }}>
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <AlertTriangle size={22} color="#ef4444" />
+                <h3 style={{ fontSize: '1.25rem', fontWeight: 800 }}>Send Emergency Journey Alert</h3>
+              </div>
+              <button onClick={() => setShowEmergencyModal(false)} style={{ background: 'transparent', color: 'var(--text-muted)' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+              Select which contacts to notify. Clicking an action opens your device messaging application with the message pre-filled.
+            </p>
+
+            {/* Prepared Message Preview */}
+            <div style={{
+              backgroundColor: 'var(--bg-card)',
+              padding: '1rem',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--border-subtle)',
+              marginBottom: '1.25rem'
+            }}>
+              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.35rem', textTransform: 'uppercase' }}>
+                Prepared Message Preview:
+              </div>
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-primary)', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
+                {getEmergencyMessageText()}
+              </div>
+            </div>
+
+            {/* Select Contacts */}
+            <div style={{ marginBottom: '1.25rem' }}>
+              <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>
+                Select Emergency Contacts ({contacts.length} saved):
+              </div>
+
+              {contacts.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {contacts.map((contact) => (
+                    <div
+                      key={contact.id}
+                      style={{
+                        padding: '0.65rem 0.85rem',
+                        backgroundColor: 'var(--bg-surface)',
+                        borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--border-subtle)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between'
+                      }}
+                    >
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', flex: 1 }}>
+                        <input
+                          type="checkbox"
+                          checked={selectedContactIds.includes(contact.id)}
+                          onChange={() => handleToggleContactSelection(contact.id)}
+                          style={{ accentColor: 'var(--brand-purple)', width: '16px', height: '16px' }}
+                        />
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{contact.name}</div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{contact.relationship} • {contact.phone}</div>
+                        </div>
+                      </label>
+
+                      {/* Direct SMS Action */}
+                      <a
+                        href={`sms:${contact.phone}?body=${encodeURIComponent(getEmergencyMessageText())}`}
+                        className="btn btn-secondary btn-sm"
+                        style={{ gap: '0.3rem' }}
+                      >
+                        <Send size={13} /> Open SMS
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                  No contacts found. Please add emergency contacts in the SOS section.
+                </div>
+              )}
+            </div>
+
+            <div style={{
+              backgroundColor: 'rgba(99, 102, 241, 0.08)',
+              padding: '0.75rem',
+              borderRadius: 'var(--radius-md)',
+              fontSize: '0.775rem',
+              color: 'var(--text-secondary)',
+              marginBottom: '1.25rem',
+              lineHeight: 1.4
+            }}>
+              ℹ️ <strong>Note:</strong> Clicking "Open SMS" or "Share" transfers this text to your phone's SMS or messaging app. You will need to press <strong>Send</strong> in that application. Delivery depends on cellular network availability.
+            </div>
+
+            <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
+              <button
+                type="button"
+                onClick={() => handleShareViaWebShare(getEmergencyMessageText())}
+                className="btn btn-outline btn-sm"
+                style={{ gap: '0.35rem' }}
+              >
+                <Share2 size={14} /> Broadcast via Share Sheet
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowEmergencyModal(false)}
+                className="btn btn-primary btn-sm"
+              >
+                Close
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* ARRIVAL CONFIRMATION MODAL */}
+      {showArrivalModal && (
+        <div className="modal-overlay" onClick={() => setShowArrivalModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '540px' }}>
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <CheckCircle2 size={24} color="#10b981" />
+                <h3 style={{ fontSize: '1.25rem', fontWeight: 800 }}>Destination Reached Safely!</h3>
+              </div>
+              <button onClick={() => setShowArrivalModal(false)} style={{ background: 'transparent', color: 'var(--text-muted)' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1.25rem' }}>
+              Your journey has been marked as <strong>COMPLETED</strong>. All check-in reminders have been turned off. Would you like to notify your trusted contacts that you have arrived?
+            </p>
+
+            <div style={{
+              backgroundColor: 'var(--bg-card)',
+              padding: '0.85rem 1rem',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--border-subtle)',
+              fontSize: '0.85rem',
+              color: 'var(--text-primary)',
+              marginBottom: '1.25rem'
+            }}>
+              <strong>Prepared message:</strong> "{getArrivalMessageText()}"
+            </div>
+
+            {contacts.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.25rem' }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                  Send safe arrival SMS to:
+                </div>
+                {contacts.slice(0, 3).map((c) => (
+                  <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.75rem', backgroundColor: 'var(--bg-surface)', borderRadius: 'var(--radius-sm)' }}>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{c.name} ({c.relationship})</span>
+                    <a
+                      href={`sms:${c.phone}?body=${encodeURIComponent(getArrivalMessageText())}`}
+                      className="btn btn-secondary btn-sm"
+                      style={{ fontSize: '0.75rem', padding: '0.3rem 0.65rem' }}
+                    >
+                      <Send size={12} /> Send Arrival SMS
+                    </a>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="modal-footer">
+              <button
+                type="button"
+                onClick={() => handleShareViaWebShare(getArrivalMessageText())}
+                className="btn btn-secondary btn-sm"
+              >
+                <Share2 size={14} /> Share via Apps
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowArrivalModal(false)}
+                className="btn btn-primary btn-sm"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Previous Journeys History */}
       {journeyHistory.length > 0 && (

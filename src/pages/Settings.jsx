@@ -6,18 +6,19 @@ import {
   Battery,
   BatteryLow,
   BatteryCharging,
-  Key,
   Download,
   Trash2,
   LogOut,
-  Shield,
+  ShieldCheck,
   CheckCircle2,
   AlertTriangle,
   Info,
-  PhoneCall
+  Navigation,
+  Clock,
+  Car
 } from 'lucide-react';
 import { useAuth } from '../services/authContext';
-import { clearAllLocalData, getAllIncidents, getAllJourneys, getEmergencyContacts } from '../services/db';
+import { clearAllLocalData, getAllIncidents, getAllJourneys, getEmergencyContacts, getCachedResources } from '../services/db';
 import { getBatteryStatus } from '../services/deviceService';
 
 export default function Settings() {
@@ -36,6 +37,15 @@ export default function Settings() {
 
   const [savedSuccess, setSavedSuccess] = useState(false);
 
+  // Journey Preferences
+  const [journeyPref, setJourneyPref] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('shield_her_journey_pref') || '{"interval":"15","defaultMode":"Cab / Ride Share"}');
+    } catch {
+      return { interval: '15', defaultMode: 'Cab / Ride Share' };
+    }
+  });
+
   // Battery State & Threshold
   const [batteryInfo, setBatteryInfo] = useState({ supported: false, level: null, charging: false });
   const [batteryThreshold, setBatteryThreshold] = useState(() => {
@@ -43,13 +53,26 @@ export default function Settings() {
   });
   const [simulatedBatteryLevel, setSimulatedBatteryLevel] = useState(null);
 
-  // Optional Gemini API Key
-  const [geminiKey, setGeminiKey] = useState(() => {
-    return localStorage.getItem('shield_her_gemini_key') || '';
-  });
+  // Storage Counts
+  const [counts, setCounts] = useState({ incidents: 0, journeys: 0, contacts: 0, resources: 0 });
 
   useEffect(() => {
     getBatteryStatus().then(setBatteryInfo);
+
+    // Read real storage counts from IndexedDB
+    Promise.all([
+      getAllIncidents(),
+      getAllJourneys(),
+      getEmergencyContacts(),
+      getCachedResources('all')
+    ]).then(([inc, jny, cnt, res]) => {
+      setCounts({
+        incidents: inc.length,
+        journeys: jny.length,
+        contacts: cnt.length,
+        resources: res.length
+      });
+    });
   }, []);
 
   const handleProfileSubmit = (e) => {
@@ -59,16 +82,16 @@ export default function Settings() {
     setTimeout(() => setSavedSuccess(false), 3000);
   };
 
+  const handleSaveJourneyPref = (e) => {
+    e.preventDefault();
+    localStorage.setItem('shield_her_journey_pref', JSON.stringify(journeyPref));
+    alert('Journey preferences saved.');
+  };
+
   const handleBatteryThresholdChange = (e) => {
     const val = parseInt(e.target.value, 10);
     setBatteryThreshold(val);
     localStorage.setItem('shield_her_battery_threshold', val.toString());
-  };
-
-  const handleGeminiKeySave = (e) => {
-    e.preventDefault();
-    localStorage.setItem('shield_her_gemini_key', geminiKey.trim());
-    alert('Gemini API key saved in local browser storage.');
   };
 
   const handleExportFullData = async () => {
@@ -118,14 +141,14 @@ export default function Settings() {
       <div>
         <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
           <SettingsIcon size={28} color="var(--brand-purple-light)" />
-          Settings & Personalization
+          Settings & Safety Preferences
         </h1>
         <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
-          Configure emergency medical identity, low-battery alert parameters, and data backups.
+          Configure emergency medical identity, transit defaults, battery thresholds, and local device storage.
         </p>
       </div>
 
-      {/* Profile & Medical Identity Form */}
+      {/* Emergency Profile & Medical Identity Form */}
       <div className="card">
         <div className="card-header">
           <div className="card-title">
@@ -135,7 +158,7 @@ export default function Settings() {
         </div>
 
         <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1.25rem' }}>
-          In an emergency, these details are included in your location broadcasts to assist first responders.
+          In an emergency, these details can be attached to your location broadcasts to assist first responders.
         </p>
 
         <form onSubmit={handleProfileSubmit}>
@@ -228,6 +251,55 @@ export default function Settings() {
         </form>
       </div>
 
+      {/* Safe Journey Companion Preferences */}
+      <div className="card">
+        <div className="card-header">
+          <div className="card-title">
+            <Navigation size={20} color="var(--brand-purple-light)" />
+            <span>Safe Journey Defaults</span>
+          </div>
+        </div>
+
+        <form onSubmit={handleSaveJourneyPref}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
+            <div className="form-group">
+              <label className="form-label">Default Check-In Interval</label>
+              <select
+                className="form-select"
+                value={journeyPref.interval}
+                onChange={(e) => setJourneyPref({ ...journeyPref, interval: e.target.value })}
+              >
+                <option value="10">Every 10 minutes</option>
+                <option value="15">Every 15 minutes (Standard)</option>
+                <option value="30">Every 30 minutes</option>
+                <option value="45">Every 45 minutes</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Primary Travel Mode</label>
+              <select
+                className="form-select"
+                value={journeyPref.defaultMode}
+                onChange={(e) => setJourneyPref({ ...journeyPref, defaultMode: e.target.value })}
+              >
+                <option value="Cab / Ride Share">Cab / Ride Share (Uber/Ola)</option>
+                <option value="Auto Rickshaw">Auto Rickshaw</option>
+                <option value="Metro / Train">Metro / Train</option>
+                <option value="Public Bus">Public Bus</option>
+                <option value="Walking Alone">Walking Alone</option>
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+            <button type="submit" className="btn btn-secondary btn-sm">
+              Save Journey Defaults
+            </button>
+          </div>
+        </form>
+      </div>
+
       {/* Low-Battery Safety Reminder Configuration */}
       <div className="card">
         <div className="card-header">
@@ -243,7 +315,7 @@ export default function Settings() {
         </div>
 
         <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1.25rem' }}>
-          When device battery crosses your safety threshold, SHIELD HER displays an alert prompting you to share your journey ETA and prepare offline contacts.
+          When device battery crosses your safety threshold, SHIELD HER displays an advisory banner prompting you to confirm your journey ETA and prepare offline contacts.
         </p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', backgroundColor: 'var(--bg-surface)', padding: '1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
@@ -270,7 +342,7 @@ export default function Settings() {
             <span>30%</span>
           </div>
 
-          {/* Fallback Simulator for Desktop Browsers */}
+          {/* Evaluator Simulator for Testing */}
           <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
               🧪 <strong>Test Low-Battery Simulator</strong> (for evaluators on desktop browsers):
@@ -300,74 +372,72 @@ export default function Settings() {
             </div>
           </div>
         </div>
-
-        <div style={{ marginTop: '1rem', fontSize: '0.775rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-          ℹ️ <strong>Technical Limitations:</strong> Web browsers cannot run background tasks or send SMS automatically when the phone has completely powered down. When battery is low, immediately message your trusted contacts.
-        </div>
       </div>
 
-      {/* Optional Google Gemini AI API Configuration */}
+      {/* Browser Background Timer Guidance */}
       <div className="card">
         <div className="card-header">
           <div className="card-title">
-            <Key size={20} color="var(--brand-purple-light)" />
-            <span>AI Cyber Harassment API Settings (Optional)</span>
+            <Clock size={20} color="var(--brand-purple-light)" />
+            <span>Mobile Browser Background Timer Behavior</span>
           </div>
-          <span className="badge badge-purple">Advanced</span>
+        </div>
+
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+          Mobile operating systems (iOS and Android) aggressively suspend active JavaScript timers when a phone's screen is locked or another application is brought to the foreground.
+        </p>
+
+        <div style={{ backgroundColor: 'var(--bg-surface)', padding: '0.85rem 1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', marginTop: '0.5rem', fontSize: '0.825rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+          <strong>Recommended Best Practice:</strong> During active night travel, keep this web page open or add SHIELD HER to your mobile home screen (as a PWA). When you unlock your device, check-in deadlines calculate immediately against your true timestamp to show if you are overdue.
+        </div>
+      </div>
+
+      {/* Data Sovereignty & Storage Counts */}
+      <div className="card">
+        <div className="card-header">
+          <div className="card-title">
+            <ShieldCheck size={20} color="var(--status-safe)" />
+            <span>Device Storage Status & Data Portability</span>
+          </div>
         </div>
 
         <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-          SHIELD HER includes a powerful built-in local rule-based safety heuristics engine that works 100% offline. If you have a Google Gemini API key, you can enter it below to enable neural language parsing.
+          All data is stored client-side in your device's IndexedDB. Your records are not uploaded to remote servers.
         </p>
 
-        <form onSubmit={handleGeminiKeySave}>
-          <div className="form-group">
-            <label className="form-label">Google Gemini API Key</label>
-            <input
-              type="password"
-              className="form-input"
-              placeholder="AIzaSy..."
-              value={geminiKey}
-              onChange={(e) => setGeminiKey(e.target.value)}
-            />
-            <span className="form-hint">Stored strictly in your local browser storage. Never logged to external analytics.</span>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+          gap: '0.75rem',
+          marginBottom: '1.25rem'
+        }}>
+          <div style={{ backgroundColor: 'var(--bg-surface)', padding: '0.75rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Emergency Contacts</div>
+            <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)' }}>{counts.contacts}</div>
           </div>
-
-          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-            {geminiKey && (
-              <button
-                type="button"
-                onClick={() => { setGeminiKey(''); localStorage.removeItem('shield_her_gemini_key'); }}
-                className="btn btn-outline btn-sm"
-              >
-                Remove Key
-              </button>
-            )}
-            <button type="submit" className="btn btn-secondary btn-sm">
-              Save AI Key
-            </button>
+          <div style={{ backgroundColor: 'var(--bg-surface)', padding: '0.75rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Logged Incidents</div>
+            <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)' }}>{counts.incidents}</div>
           </div>
-        </form>
-      </div>
-
-      {/* Data Backup & Dangerous Actions */}
-      <div className="card">
-        <div className="card-header">
-          <div className="card-title">
-            <Download size={20} color="var(--status-safe)" />
-            <span>Data Portability & Device Storage Management</span>
+          <div style={{ backgroundColor: 'var(--bg-surface)', padding: '0.75rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Travel Records</div>
+            <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)' }}>{counts.journeys}</div>
+          </div>
+          <div style={{ backgroundColor: 'var(--bg-surface)', padding: '0.75rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Verified Facilities</div>
+            <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)' }}>{counts.resources}</div>
           </div>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1rem' }}>
           <div>
-            <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Export Complete Encrypted Dossier</div>
+            <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Export Safety Archive</div>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              Download all incidents, safe journey records, and emergency contacts as a JSON archive.
+              Download contacts, journey records, and incidents as a portable JSON file.
             </div>
           </div>
           <button onClick={handleExportFullData} className="btn btn-secondary btn-sm" style={{ gap: '0.4rem' }}>
-            <Download size={14} /> Export Backup (JSON)
+            <Download size={14} /> Download Archive (JSON)
           </button>
         </div>
 
@@ -381,19 +451,19 @@ export default function Settings() {
           gap: '1rem'
         }}>
           <div>
-            <div style={{ fontWeight: 600, color: 'var(--status-danger)' }}>Purge Local Browser Data</div>
+            <div style={{ fontWeight: 600, color: 'var(--status-danger)' }}>Reset Local Data</div>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              Permanently delete all stored evidence, journey logs, and reset database to factory defaults.
+              Erase custom incidents and restore default emergency demonstration data.
             </div>
           </div>
           <button onClick={handleClearAllData} className="btn btn-danger btn-sm" style={{ gap: '0.4rem' }}>
-            <Trash2 size={14} /> Clear All Local Data
+            <Trash2 size={14} /> Reset Local Data
           </button>
         </div>
       </div>
 
       {/* Logout Action */}
-      <div style={{ display: 'flex', justifyContent: 'center', marginTop: '1rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'center', marginTop: '0.5rem' }}>
         <button
           onClick={() => { logout(); navigate('/login'); }}
           className="btn btn-outline"

@@ -114,27 +114,14 @@ export default function Navbar({ onToggleSidebar, isSidebarOpen }) {
               <div style={{
                 fontFamily: 'Plus Jakarta Sans',
                 fontWeight: 800,
-                fontSize: '1.15rem',
+                fontSize: '1.2rem',
                 letterSpacing: '-0.02em',
                 color: 'var(--text-primary)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.4rem'
+                lineHeight: 1.15
               }}>
                 SHIELD HER
-                <span style={{
-                  fontSize: '0.65rem',
-                  fontWeight: 700,
-                  padding: '0.15rem 0.4rem',
-                  borderRadius: '4px',
-                  backgroundColor: 'rgba(236, 72, 153, 0.15)',
-                  color: '#fb7185',
-                  border: '1px solid rgba(236, 72, 153, 0.3)'
-                }}>
-                  recHERsion'26
-                </span>
               </div>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', lineHeight: 1 }}>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 500, letterSpacing: '0.01em', marginTop: '2px' }}>
                 Safety • Privacy • Power
               </div>
             </div>

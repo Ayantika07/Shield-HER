@@ -10,8 +10,8 @@ import {
   Sparkles,
   ExternalLink,
   Info,
-  FileCheck,
-  ShieldCheck
+  ShieldCheck,
+  FileCheck
 } from 'lucide-react';
 import { analyzeHarassmentMessage, SAMPLE_MESSAGES } from '../services/analyzerService';
 import { saveIncident } from '../services/db';
@@ -27,7 +27,7 @@ export default function Detector() {
 
   const handleAnalyze = async () => {
     if (!inputText.trim()) {
-      setError('Please paste or type a digital message to evaluate.');
+      setError('Please enter or paste a digital message to evaluate.');
       return;
     }
     setError('');
@@ -35,10 +35,9 @@ export default function Detector() {
     setSavedToEvidence(false);
 
     try {
-      const apiKey = localStorage.getItem('shield_her_gemini_key') || '';
-      // Simulate quick natural evaluation delay
-      await new Promise(r => setTimeout(r, 600));
-      const analysis = await analyzeHarassmentMessage(inputText, apiKey);
+      // Natural evaluation delay
+      await new Promise(r => setTimeout(r, 300));
+      const analysis = await analyzeHarassmentMessage(inputText);
       setResult(analysis);
     } catch (err) {
       setError(err.message || 'Analysis failed. Please check input.');
@@ -71,7 +70,7 @@ export default function Detector() {
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         location: 'Online Messaging / Social Media',
         suspect: 'Digital Sender / Handle',
-        description: `Message Content: "${inputText}"\n\nAI Analysis: ${result.classification} (Risk Score: ${result.riskScore}/100)\nDetected Flags: ${result.detectedFlags.join(', ')}`,
+        description: `Analyzed Text: "${inputText}"\n\nClassification: ${result.classification}\nThreat Score: ${result.riskScore}/100\nDetected Indicators: ${result.detectedFlags.join(', ')}\n\nMatched Details:\n${result.matchedPhrases.map(m => `• "${m.phrase}" (${m.ruleCategory}): ${m.explanation}`).join('\n')}`,
         analysisReport: result,
         evidenceCount: 1,
         evidenceFiles: [
@@ -85,6 +84,53 @@ export default function Detector() {
     }
   };
 
+  // Helper to render message with highlighted matched phrases
+  const renderHighlightedText = (text, phrases) => {
+    if (!phrases || phrases.length === 0) return <span>{text}</span>;
+
+    // Create regex matching any of the phrases
+    const escaped = phrases
+      .map(p => (p.phrase || p).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .join('|');
+
+    if (!escaped) return <span>{text}</span>;
+
+    try {
+      const regex = new RegExp(`(${escaped})`, 'gi');
+      const parts = text.split(regex);
+
+      return (
+        <span>
+          {parts.map((part, i) => {
+            const isMatch = phrases.some(
+              p => (p.phrase || p).toLowerCase() === part.toLowerCase()
+            );
+            if (isMatch) {
+              return (
+                <mark
+                  key={i}
+                  style={{
+                    backgroundColor: 'rgba(239, 68, 68, 0.35)',
+                    color: '#fecaca',
+                    padding: '0.15rem 0.35rem',
+                    borderRadius: '4px',
+                    fontWeight: 700,
+                    borderBottom: '2px solid #ef4444'
+                  }}
+                >
+                  {part}
+                </mark>
+              );
+            }
+            return <span key={i}>{part}</span>;
+          })}
+        </span>
+      );
+    } catch {
+      return <span>{text}</span>;
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '1000px', margin: '0 auto' }}>
       {/* Title */}
@@ -94,14 +140,14 @@ export default function Detector() {
           AI Cyber Harassment & Threat Detector
         </h1>
         <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
-          Evaluate unwanted digital messages, identify extortion or stalking patterns, and prepare forensic reports.
+          Evaluate unwanted digital messages, identify threats of physical harm, extortion, or stalking, and preserve forensic evidence.
         </p>
       </div>
 
-      {/* Preset Sample Messages for Hackathon Judges */}
+      {/* Preset Sample Messages for Quick Evaluation */}
       <div className="card" style={{ padding: '1rem 1.25rem' }}>
         <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--brand-lavender)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-          <Sparkles size={16} /> Quick Test Presets (Click to evaluate sample message):
+          <Sparkles size={16} /> Quick Test Presets (Click any message to test detection):
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
           {SAMPLE_MESSAGES.map((sample, idx) => (
@@ -129,14 +175,14 @@ export default function Detector() {
             <span>Message Content for Risk Assessment</span>
           </div>
           <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            🔒 Local Analysis (Not shared publicly)
+            🔒 Local Analysis (Processed privately on your device)
           </span>
         </div>
 
         <textarea
-          rows={6}
+          rows={5}
           className="form-textarea"
-          placeholder="Paste suspected SMS, Instagram DM, WhatsApp message, email, or threatening text here..."
+          placeholder="Paste suspected SMS, Instagram DM, WhatsApp message, email, or threatening text here (e.g. 'I will slap you', 'I will hurt you', etc.)..."
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
           style={{ resize: 'vertical', fontSize: '0.95rem', lineHeight: 1.6 }}
@@ -178,7 +224,7 @@ export default function Detector() {
       {result && (
         <div style={{
           backgroundColor: 'var(--bg-surface)',
-          border: `1px solid ${result.classification === 'Potentially Dangerous' ? '#ef4444' : result.classification === 'Suspicious' ? '#f59e0b' : '#10b981'}`,
+          border: `1px solid ${result.statusKey === 'danger' ? '#ef4444' : result.statusKey === 'warning' ? '#f59e0b' : '#10b981'}`,
           borderRadius: 'var(--radius-xl)',
           padding: '1.5rem',
           boxShadow: 'var(--shadow-md)',
@@ -187,8 +233,8 @@ export default function Detector() {
           {/* Header & Risk Classification */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem' }}>
             <div>
-              <span className={`badge badge-${result.badgeColor}`} style={{ fontSize: '0.8rem', padding: '0.3rem 0.75rem', marginBottom: '0.5rem' }}>
-                Classification: {result.classification}
+              <span className={`badge badge-${result.badgeColor}`} style={{ fontSize: '0.85rem', padding: '0.35rem 0.85rem', marginBottom: '0.5rem' }}>
+                {result.classification}
               </span>
               <h2 style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--text-primary)' }}>
                 {result.severityLevel}
@@ -212,7 +258,7 @@ export default function Detector() {
                 <div style={{
                   fontSize: '1.4rem',
                   fontWeight: 800,
-                  color: result.riskScore >= 40 ? '#ef4444' : result.riskScore >= 15 ? '#f59e0b' : '#10b981'
+                  color: result.riskScore >= 60 ? '#ef4444' : result.riskScore >= 25 ? '#f59e0b' : '#10b981'
                 }}>
                   {result.riskScore}/100
                 </div>
@@ -227,55 +273,99 @@ export default function Detector() {
             </div>
           </div>
 
-          {/* Trigger Flags & Highlighted Words */}
-          <div style={{ marginBottom: '1.25rem' }}>
-            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>
-              Specific Detected Flags & Indicators:
+          {/* Context Note (if self-vulnerability or negated) */}
+          {result.contextNote && (
+            <div style={{
+              backgroundColor: 'rgba(99, 102, 241, 0.12)',
+              border: '1px solid rgba(99, 102, 241, 0.3)',
+              borderRadius: 'var(--radius-md)',
+              padding: '0.75rem 1rem',
+              marginBottom: '1.25rem',
+              fontSize: '0.85rem',
+              color: 'var(--brand-lavender)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem'
+            }}>
+              <Info size={16} style={{ flexShrink: 0 }} />
+              <span><strong>Contextual Assessment:</strong> {result.contextNote}</span>
             </div>
-            {result.detectedFlags.length > 0 ? (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                {result.detectedFlags.map((flag, idx) => (
-                  <span
+          )}
+
+          {/* Text with In-Line Highlights */}
+          {result.matchedPhrases.length > 0 && (
+            <div style={{
+              backgroundColor: 'var(--bg-card)',
+              padding: '1rem',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--border-subtle)',
+              marginBottom: '1.25rem'
+            }}>
+              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>
+                Highlighted Message Content
+              </div>
+              <div style={{ fontSize: '0.95rem', color: 'var(--text-primary)', lineHeight: 1.6 }}>
+                {renderHighlightedText(inputText, result.matchedPhrases)}
+              </div>
+            </div>
+          )}
+
+          {/* Matched Keyword Phrases & Explanations */}
+          <div style={{ marginBottom: '1.25rem' }}>
+            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.65rem' }}>
+              Matched Keyword Phrases & Detailed Explanations:
+            </div>
+
+            {result.matchedPhrases.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                {result.matchedPhrases.map((match, idx) => (
+                  <div
                     key={idx}
                     style={{
-                      padding: '0.35rem 0.65rem',
+                      backgroundColor: 'var(--bg-card)',
+                      borderLeft: `4px solid ${match.severity === 'Dangerous' ? '#ef4444' : '#f59e0b'}`,
                       borderRadius: 'var(--radius-sm)',
-                      backgroundColor: 'rgba(239, 68, 68, 0.15)',
-                      border: '1px solid rgba(239, 68, 68, 0.3)',
-                      color: '#fca5a5',
-                      fontSize: '0.8rem',
-                      fontWeight: 600
+                      padding: '0.75rem 1rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.35rem'
                     }}
                   >
-                    ⚠️ {flag}
-                  </span>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      <span style={{ fontWeight: 700, color: '#f8fafc', fontSize: '0.95rem' }}>
+                        "{match.phrase}"
+                      </span>
+                      <span className={`badge ${match.severity === 'Dangerous' ? 'badge-danger' : 'badge-warning'}`} style={{ fontSize: '0.7rem' }}>
+                        {match.ruleCategory}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                      {match.explanation}
+                    </div>
+                  </div>
                 ))}
               </div>
             ) : (
-              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                No overt threat patterns or harassment triggers were detected in this text.
+              <div style={{
+                backgroundColor: 'var(--bg-card)',
+                padding: '0.85rem 1rem',
+                borderRadius: 'var(--radius-md)',
+                fontSize: '0.85rem',
+                color: 'var(--status-safe)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                border: '1px solid rgba(16, 185, 129, 0.25)'
+              }}>
+                <CheckCircle2 size={18} />
+                <span>No overt threat patterns, physical violence phrases, or extortion triggers were identified in this message.</span>
               </div>
             )}
           </div>
 
-          {/* Highlighted Terms */}
-          {result.highlightedTerms.length > 0 && (
-            <div style={{
-              backgroundColor: 'var(--bg-card)',
-              padding: '0.75rem',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--border-subtle)',
-              marginBottom: '1.25rem',
-              fontSize: '0.825rem'
-            }}>
-              <strong style={{ color: 'var(--text-primary)' }}>Matched Keyword Phrases:</strong>{' '}
-              <span style={{ color: '#fb7185' }}>{result.highlightedTerms.join(', ')}</span>
-            </div>
-          )}
-
           {/* Practical Next Steps */}
           <div style={{ marginBottom: '1.5rem' }}>
-            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>
+            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>
               Actionable Safety Guidance & Next Steps:
             </div>
             <ul style={{ paddingLeft: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.875rem' }}>
@@ -328,31 +418,12 @@ export default function Detector() {
             </a>
           </div>
 
-          {/* Disclaimer */}
+          {/* Limitation Disclaimer */}
           <div style={{ marginTop: '1rem', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
             ℹ️ {result.disclaimer}
           </div>
         </div>
       )}
-
-      {/* Safety Notice */}
-      <div style={{
-        padding: '1rem',
-        borderRadius: 'var(--radius-md)',
-        backgroundColor: 'rgba(99, 102, 241, 0.08)',
-        border: '1px solid rgba(99, 102, 241, 0.25)',
-        fontSize: '0.8rem',
-        color: 'var(--text-secondary)',
-        lineHeight: 1.5,
-        display: 'flex',
-        alignItems: 'flex-start',
-        gap: '0.6rem'
-      }}>
-        <Info size={18} color="var(--brand-purple-light)" style={{ flexShrink: 0, marginTop: '2px' }} />
-        <div>
-          <strong>Privacy & Forensic Preservation:</strong> Messages analyzed here are processed locally on your client machine. They are never sent to external servers unless an optional Gemini API key is configured. Always save full screenshots showing timestamps and usernames as legal court evidence.
-        </div>
-      </div>
     </div>
   );
 }
